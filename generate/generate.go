@@ -2,6 +2,7 @@ package generate
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/constant"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2/options"
 	"github.com/gunk/gunk/config"
+	"github.com/gunk/gunk/generate/doc"
 	"github.com/gunk/gunk/generate/downloader"
 	"github.com/gunk/gunk/loader"
 	"github.com/gunk/gunk/log"
@@ -220,14 +222,41 @@ func (g *Generator) GeneratePkg(path string, gens []config.Generator, protocPath
 	// have nothing to do.
 	req := g.newCodeGenRequest(path)
 	for _, gen := range gens {
-		if gen.IsProtoc() {
+		switch {
+		case gen.IsDoc():
+			pkg := g.gunkPkgs[path]
+			docPkg, err := doc.Generate(pkg, gen)
+			if err != nil {
+				return fmt.Errorf("unable to generate documentation: %w", err)
+			}
+			// output dir
+			out := pkg.Dir
+			outDir, err := outPath(gen, out, pkg)
+			if err != nil {
+				return fmt.Errorf("unable to build output path for %q: %w", pkg.Dir, err)
+			}
+			if outDir != "" {
+				if err := mkdirAll(outDir); err != nil {
+					return fmt.Errorf("unable to create directory %q: %w", outDir, err)
+				}
+			}
+			fpath := filepath.Join(outDir, "doc.json")
+			f, err := os.Create(fpath)
+			if err != nil {
+				return fmt.Errorf("unable to create output file %q: %w", fpath, err)
+			}
+			defer f.Close()
+			if err := json.NewEncoder(f).Encode(docPkg); err != nil {
+				return fmt.Errorf("unable to write output file %q: %w", fpath, err)
+			}
+		case gen.IsProtoc():
 			if gen.PluginVersion != "" {
 				return fmt.Errorf("cannot use pinned version with protoc option")
 			}
 			if err := g.generateProtoc(*req, gen, protocPath); err != nil {
 				return fmt.Errorf("unable to generate protoc: %w", err)
 			}
-		} else {
+		default:
 			c := configWithBinary{Generator: gen}
 			if gen.PluginVersion != "" {
 				has := downloader.Has(gen.Code())
@@ -1182,6 +1211,7 @@ func (g *Generator) convertEnum(tspec *ast.TypeSpec) (*descriptorpb.EnumDescript
 			}
 			g.curPos = vs.Pos()
 			docText := vs.Doc.Text()
+
 			switch {
 			case docText == "":
 				// The original comment only had gunk tags, and

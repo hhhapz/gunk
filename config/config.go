@@ -35,6 +35,10 @@ type Generator struct {
 	Shortened     bool // only for `gunk vet`
 }
 
+func (g Generator) IsDoc() bool {
+	return g.Command == "doc"
+}
+
 func (g Generator) IsProtoc() bool {
 	return g.ProtocGen != ""
 }
@@ -265,10 +269,13 @@ func handleGenerate(section *parser.Section, shorthand *string) (*Generator, err
 		// We ignore the binary path since we don't do the same for the
 		// normal generate section. If we start using the binary path here
 		// we should also use it for the normal generate section.
-		if !ProtocBuiltinLanguages[generator] {
-			gen.Command = "protoc-gen-" + generator
-		} else {
+		switch {
+		case generator == "doc":
+			gen.Command = generator
+		case ProtocBuiltinLanguages[generator]:
 			gen.ProtocGen = generator
+		default:
+			gen.Command = "protoc-gen-" + generator
 		}
 		gen.Shortened = true // for vetting
 	}
